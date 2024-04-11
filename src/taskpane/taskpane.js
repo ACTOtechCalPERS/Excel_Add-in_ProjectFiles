@@ -684,12 +684,17 @@ function DataTableToHTML(oTable, oAgency){
       this.data = [];
     }
     // Method to append new datasets
-    addData(plan, planAmortSch, planColor, planBorderColor) {
+    addData(plan, empAmortSch, planColor, planBorderColor) {
       var objData = {
         label: "VRP " + plan,
-        data: planAmortSch["Total Payments"].slice(),
+        data: empAmortSch["amortTotals"][plan]["Total Payments"].slice(0,25),
+        order: 2,
+        type: "bar",
+        stack: "UALPayment",
+        yAxisID: "y-axis-1",
         backgroundColor: planColor,
-        borderColor: planBorderColor
+        borderColor: planBorderColor,
+        amortBases: empAmortSch["amortBases"][plan] // Reference to original array of bases
       };
     
       this.data.push(objData);
@@ -698,13 +703,73 @@ function DataTableToHTML(oTable, oAgency){
     addBalanceData(plan, planAmortSch, planColor, planBorderColor) {
       var objData = {
         label: "VRP " + plan,
-        data: planAmortSch["Total Balance"].slice(),
+        data: planAmortSch["Total Balance"].slice(0,25),
+        order: 2,
+        type: "bar",
+        stack: "UALBalance",
+        yAxisID: "y-axis-1",
         backgroundColor: planColor,
         borderColor: planBorderColor
       };
     
       this.data.push(objData);
       console.log('UAL data has been appended')
+    }
+    addPayrollData(projPaySch, planBorderColor) {
+      var objData = {
+        label: "Projected Payroll",
+        data: projPaySch.slice(0,25),
+        order: 1,
+        type: "line",
+        borderDash: [20, 5],
+        stack: "Payroll",
+        yAxisID: "y-axis-1",
+        hidden: true,
+        backgroundColor: "transparent",
+        borderColor: planBorderColor
+      };
+    
+      this.data.push(objData);
+      console.log('Payroll data has been appended')
+    }
+    addPctPayData(planBorderColor) {
+      var objData = {
+        label: "UAL% of Payroll",
+        data: createProjArray(25),
+        order: 0,
+        type: "line",
+        borderDash: [20, 5],
+        stack: "UALPct",
+        yAxisID: "y-axis-2",
+        //hidden: true,
+        backgroundColor: "transparent",
+        borderColor: planBorderColor
+      };
+
+      // Clear the old UAL % of payroll calc before adding the new
+      let newArray = this.data.filter(item => item.label !== "UAL% of Payroll");
+      this.data = newArray;
+      
+      let totPmt = createProjArray(30);
+      for (let i = 0; i < this["data"].length; i++) {
+        if (this["data"][i]["stack"] == "UALPayment") {
+          for (let j = 0; j < this["data"][i]["data"].length; j++) {
+            totPmt[j] += Number(this["data"][i]["data"][j]);
+          }
+        }
+      }
+      for (let k = 0; k < this["data"].length; k++) {
+        if (this["data"][k]["stack"] == "Payroll") {
+          for (let m = 0; m < 25; m++) {
+            if (Number(this["data"][k]["data"][m]) > 0) {
+              objData["data"][m] = Number(totPmt[m])/Number(this["data"][k]["data"][m]);
+            }
+          }
+        }
+      }
+
+      this.data.push(objData);
+      console.log('UAL% data has been appended')
     }
   };
   
@@ -717,7 +782,7 @@ function DataTableToHTML(oTable, oAgency){
   var chart1 = chart1Canvas.getContext('2d');
   var chart2 = chart2Canvas.getContext('2d');
   var globalDRate = 0;
-  
+  Chart.defaults.global.elements.rectangle.borderWidth = 2;
   
   
   const globalChartBarColors = [
@@ -745,31 +810,51 @@ function DataTableToHTML(oTable, oAgency){
  Chart.plugins.register({
   afterDatasetsDraw: function (chart, easing) {
     var ctx = chart.ctx;
-    var grandTotal = 0;
+    var grandUALTotal = 0;
 
     chart.data.labels.forEach(function (label, labelIndex) {
-      var total = 0;
-      var highestIndex = 0;
+      var total = [0, 0, 0];
+      var highestIndex = [0, 0, 0];
+      var visiblePayroll = false;
       chart.data.datasets.forEach(function (dataset, datasetIndex) {
         var meta = chart.getDatasetMeta(datasetIndex);
-        if (!meta.hidden) {
-          total += dataset.data[labelIndex];
-          highestIndex = datasetIndex
+        if (!meta.hidden && dataset.type == "bar" && dataset.stack =="UALPayment") {
+          total[0] += dataset.data[labelIndex];
+          highestIndex[0] = datasetIndex;
+        // } else if (meta.$filler.visible && dataset.type == "line" && dataset.stack =="Payroll") { // meta.$filler.visible creating NULL read error when hiding data from the legend?
+        //   total[2] += dataset.data[labelIndex];
+        //   highestIndex[2] = datasetIndex;
+        //   visiblePayroll = true;
         };
       });
-      grandTotal += total;
+      grandUALTotal += total[0];
 
       // Display total at the top of each category
-      var xPos = chart.getDatasetMeta(highestIndex).data[labelIndex]._model.x;
-      var yPos = chart.getDatasetMeta(highestIndex).data[labelIndex]._model.y - 5; // Adjust label position as needed
+      var xPos = chart.getDatasetMeta(highestIndex[0]).data[labelIndex]._model.x;
+      var yPos = chart.getDatasetMeta(highestIndex[0]).data[labelIndex]._model.y - 5; // Adjust label position as needed
       ctx.save(); // .save and .restore functions are used to save and restore the drawing state before and after rotation
       ctx.translate(xPos, yPos);  // Move the drawing origin to the desired position
       ctx.rotate(-Math.PI / 2); // 90 degree rotate
       ctx.fillStyle = 'black'; // Label text color
       ctx.font = '12px Arial'; // Label font size and family
       ctx.textAlign = 'center';
-      ctx.fillText(total.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","), 0, 0);
+      ctx.fillText(total[0].toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","), 0, 0);
       ctx.restore();
+      // Display UAL % of Pay at the top of index
+      // if (visiblePayroll) {
+      //   xPos = chart.getDatasetMeta(highestIndex[2]).data[labelIndex]._model.x;
+      //   yPos = chart.getDatasetMeta(highestIndex[2]).data[labelIndex]._model.y - 25; // Adjust label position as needed
+      //   ctx.save(); // .save and .restore functions are used to save and restore the drawing state before and after rotation
+      //   ctx.translate(xPos, yPos);  // Move the drawing origin to the desired position
+      //   ctx.rotate(-Math.PI / 2); // 90 degree rotate
+      //   ctx.fillStyle = 'red'; // Label text color
+      //   ctx.font = '12px Arial'; // Label font size and family
+      //   ctx.textAlign = 'center';
+      //   let pctUAL = 0;
+      //   if (Number(total[2]) > 0) {pctUAL = (Number(total[0])/Number(total[2]))*100};
+      //   ctx.fillText(pctUAL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%', 0, 0);
+      //   ctx.restore();
+      // };
     });
     // Grand Total:
     ctx.save();
@@ -777,17 +862,17 @@ function DataTableToHTML(oTable, oAgency){
     ctx.font = '12px Arial'; // Label font size and family
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(`Total Payments: ${grandTotal.toLocaleString()}`, chart.width - 10, 50);
+    ctx.fillText(`Total UAL Payments: ${grandUALTotal.toLocaleString()}`, chart.width - 10, 50);
     ctx.restore();
   }
 });
   
   //Added 2/8/24
-  function renderUALChart(chartName, cDataSet) {
+  function renderUALChart(chartName, cDataSet, xLabelStart) {
     const ctx = document.getElementById(chartName).getContext('2d');  //move this to async function?
     var xValues = [];
     for (let i = 0; i < cDataSet[0]["data"].length; i++) {
-      xValues.push(2024 + i); //parameterize starting year so not hard-coded
+      xValues.push(Number(xLabelStart) + i); //parameterize starting year so not hard-coded
     };
     Chart.Legend.prototype.afterFit = function() {
       this.height = this.height + 35;
@@ -799,27 +884,63 @@ function DataTableToHTML(oTable, oAgency){
           datasets: cDataSet
       },
       options: {
-           legend: {
-               
-           },
-          scales: {
-            xAxes: [{ stacked: true }],
-            yAxes: [{ stacked: true, 
-              ticks: { 
-                callback: function (value, index, values) {
-                  //return '$' + value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-                  return '$' + value.toLocaleString();
-                }
-              } 
-            }]
+        legend: {
+              
+        },
+        scales: {
+          xAxes: [{ stacked: true }],
+          yAxes: [{ id: 'y-axis-1',
+            position: 'left',
+            stacked: true, 
+            ticks: { 
+              callback: function (value, index, values) {
+                //return '$' + value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                return '$' + value.toLocaleString();
+              }
+            } 
           },
-          tooltips: {
-            callbacks: {
-              label: function (tooltipItem, data) {
+          { id: 'y-axis-2',
+            position: 'right',
+            //stacked: true, 
+            ticks: { 
+              callback: function (value, index, values) {
+                //return '$' + value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                return (value.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3})*100) + '%';
+              },
+              fontColor: 'red'
+            },
+            gridLines: {drawOnChartArea: false,
+              color: 'red',
+              lineWidth: 2
+            }
+          }]
+        },
+        tooltips: {
+          callbacks: {
+            label: function (tooltipItem, data) {
+              if (data["datasets"][tooltipItem["datasetIndex"]]["stack"] == "UALPct") {
+                return (tooltipItem.yLabel.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4})*100) + '%';
+              } else {
                 return '$' + tooltipItem.yLabel.toLocaleString();
               }
             }
           }
+        },
+        onClick: function(evt, elements) {
+          if (elements && elements.length > 0) {
+            clearAmortBasePanel();
+            elements.forEach(function(element) {
+              var datasetIndex = element._datasetIndex;
+              var index = element._index;
+              var value = chartUAL.data.datasets[datasetIndex].data[index]; //Needs revisions??
+              console.log('Clicked on bar index ' + index + ' with value ' + value);
+              if (chartUAL.data.datasets[datasetIndex].stack == 'UALPayment') {
+                populateAmortBasePanel(chartUAL.data.datasets[datasetIndex].amortBases, index);
+              }
+            });
+            
+          }
+        }
       }
   
     });
@@ -1026,159 +1147,44 @@ function DataTableToHTML(oTable, oAgency){
   async function getAmortSummary() {
     try {
       await Excel.run(async (context) => {
-        // Get the selected range
-        let sheetCtrl = context.workbook.worksheets.getItem("control")
-        let sheetER = context.workbook.worksheets.getItem("calcs_current_rate_plan")
-        let sheetFinRslt = context.workbook.worksheets.getItem("export_rp_financing_all")
-        let sheetAmortRslt = context.workbook.worksheets.getItem("export_rp_amort_base_all")
-        const keyColumnIndex = 0;  // Column from sheetFinRslt to lookup VRPs under an ER CID
-        const keyAmortColumnIndex = 0;  // Column from sheetFinRslt to lookup VRPs under an ER CID
-        const employerCID = sheetER.getRange("calpers_id");
-        const discountRate = sheetCtrl.getRange("interest_rate");
-        const payrollInflRate = sheetCtrl.getRange("payroll_growth");
-        const finRslts = sheetFinRslt.getRange("A5:NM3000");
-        const finAmortRows = sheetAmortRslt.getRange("C3:W30000");
-        const finAmortRowsKey = sheetAmortRslt.getRange("C2:W2");
-        const amortRows = {};
-  
-        ////////////////////////////////////////////////////////
-        ////////  Amort Base Columns: 
-        ////////    Column C - VAL_RATE_PLAN_IDENTIFIER
-        ////////    Column D - VALUATION_YEAR_ID
-        ////////    Column E - AMORT_CAUSE_TYPE_CD
-        ////////    Column F - AMORT_DESC
-        ////////    Column G - AMORT_FUNDING_TYPE_CD
-        ////////    Column H - AMORT_PERIOD_TYPE_CD
-        ////////    Column I - INITIAL_VALUATION_YEAR_ID
-        ////////    Column J - INITIAL_AMORT_PERIOD
-        ////////    Column K - INITIAL_RAMP_PERIOD_YRS
-        ////////    Column L - INITIAL_AMT
-        ////////    Column M - AMORT_PERIOD
-        ////////    Column N - VAL_DATE_AMT
-        ////////    Column O - VAL_DATE1_AMT
-        ////////    Column P - VAL_DATE2_AMT
-        ////////    Column Q - VAL_DATE_PMT
-        ////////    Column R - VAL_DATE1_PMT
-        ////////    Column S - VAL_DATE2_PMT
-        ////////    Column T - PMT_PERCENT  // Can ignore?
-        ////////    Column U - RAMP_DIRECTION_TYPE_CD
-        ////////    Column V - RAMP_PCNT
-        ////////    Column W - RAMP_UP_ONLY_FLAG
-        ////////////////////////////////////////////////////////
-  
-        // Load the values of the selected range
-        employerCID.load("values");
-        discountRate.load("values");
-        payrollInflRate.load("values");
-        finRslts.load("address, columnCount, rowCount, values");
-        finAmortRows.load("address, columnCount, rowCount, values");
-        finAmortRowsKey.load("address, columnCount, rowCount, values");
-  
-        // Run the queued commands to load values
-        await context.sync();
-  
-        // Calculate totals and averages
-        var rsltColumnIndex = 0;
-        const values = finRslts.values;
-  
-        // Create lists to store matching rows and columns to sum across
-        const matchingRows = [];
-        const matchingColumns = [];
-  
-        // Iterate through fin result tab to find ER's plans
-        const employerRows = {};
-        for (let row = 0; row < finRslts.values.length; row++) {
-          const key = finRslts.values[row][keyColumnIndex];
-          if (employerCID.values == key) {
-            employerRows[finRslts.values[row][2]] = employerRows[finRslts.values[row][2]] || 0;
-            amortRows[finRslts.values[row][2]] = [];
-          }
-        }
-  
-        let employerPlans = [];
-        Object.keys(employerRows).forEach((key) => {
-          employerPlans.push(key);
-        })
-        
-  
-        // Iterate through the amort rows and identify ER's rows within the plans
-        for (let row = 0; row < finAmortRows.values.length; row++) {
-          const key = finAmortRows.values[row][keyAmortColumnIndex];
-          if (key in employerRows) {
-            matchingRows.push(row);
-          }
-        }
-  
-        // Iterate through the columns and identify matching columns
-        for (let col = 0; col < finAmortRows.columnCount; col++) {
-          const header = finAmortRowsKey.values[0][col];
-          // if (finRsltCds.includes(header)) {
-          matchingColumns.push(col);
-          // }
-        }
-  
-        // Create dictionaries to store totals and values for each column
-        const columnTotals = {};
-  
-        // Iterate only across the relevant portion of the result range for totals
-        for (const row of matchingRows) {
-          const employerVRP = Number(finAmortRows.values[row][0]);
-          const rowValues = {};  // Nest within employerRows{}
-  
-          for (const col of matchingColumns) {
-            // Initialize total for the column if not already present
-            const rsltType = finAmortRowsKey.values[0][col];
-            columnTotals[rsltType] = columnTotals[rsltType] || 0;
-            const numericValue = Number(finAmortRows.values[row][col]); //First column is indexed to 0
-            if (!isNaN(numericValue)) {
-              columnTotals[rsltType] += numericValue;
-            }
-            rowValues[rsltType] = finAmortRows.values[row][col];
-          }
-          amortRows[employerVRP].push(rowValues);
-        }
-  
-  
-        // Display the summary in a dialog box
-        await context.sync();
-        console.log(`The summary range address was ${finAmortRows.address}.`);
-        console.log(`The ER CID was ${employerCID.values}.`);
-        console.log(columnTotals);
-        console.log(amortRows);
-        const dRate = Number(discountRate.values[0]);
-        globalDRate = Number(dRate);
-        const pRate = Number(payrollInflRate.values[0]);
-        var amortSch = getAmortTotal(amortRows, dRate, pRate);
-        amortSch = getUpdSchedule(amortSch, dRate, pRate); // Checks for negative balances at the end of a schedule and simulates single year Fresh Start
-  
-        // Update the chart ///////////////////////////////////////////////////////////////////////////////////////////
+        var amortSch = new EmpUAL;
+        await amortSch.getProps();
+        await amortSch.addAmortData();
         console.log("The updated ER amort schedules are:");
         console.log(amortSch);
+        // Update the chart ///////////////////////////////////////////////////////////////////////////////////////////
         barChartUAL.data.splice(0); // Clear the data set first
         let i = 0;
-        Object.keys(amortSch).forEach((key) => {
-          barChartUAL.addData(key, amortSch[key], globalChartBarColors[i % 7], globalChartBorderColors[i % 7]); // Currently set to cycle between 7 colors
+        Object.keys(amortSch["amortTotals"]).forEach((key) => {
+          barChartUAL.addData(key, amortSch, globalChartBarColors[i % 7], globalChartBorderColors[i % 7]); // Currently set to cycle between 7 colors
           i = i + 1;
         })
+
+        // Testing projected payroll line
+        barChartUAL.addPayrollData(amortSch.payrollData.empTotal, "black");
+        barChartUAL.addPctPayData("red");
+
         barChartUALBalance.data.splice(0); // Clear the data set first
         // Store balance data for use in fresh starts
         i = 0;
-        Object.keys(amortSch).forEach((key) => {
-          barChartUALBalance.addBalanceData(key, amortSch[key], globalChartBarColors[i % 7], globalChartBorderColors[i % 7]); // Currently set to cycle between 7 colors
+        Object.keys(amortSch["amortTotals"]).forEach((key) => {
+          barChartUALBalance.addBalanceData(key, amortSch["amortTotals"][key], globalChartBarColors[i % 7], globalChartBorderColors[i % 7]); // Currently set to cycle between 7 colors
           i = i + 1;
         })
         replaceCanvas("chartContainer1","chartUAL");
         chart1.clearRect(0, 0, chart1Canvas.width, chart1Canvas.height);
-        renderUALChart("chartUAL", barChartUAL.data);
+        renderUALChart("chartUAL", barChartUAL.data, amortSch.rateYear);
         barChartHypUAL.data.splice(0); // Clear the data set first
         i = 0;
-        Object.keys(amortSch).forEach((key) => {
-          barChartHypUAL.addData(key, amortSch[key], globalChartBarColors[i % 7], globalChartBorderColors[i % 7]); // Currently set to cycle between 7 colors
+        Object.keys(amortSch["amortTotals"]).forEach((key) => {
+          barChartHypUAL.addData(key, amortSch, globalChartBarColors[i % 7], globalChartBorderColors[i % 7]); // Currently set to cycle between 7 colors
           i = i + 1;
         })
+        barChartHypUAL.addPayrollData(amortSch.payrollData.empTotal, "black");
+        barChartHypUAL.addPctPayData("red");
         replaceCanvas("chartContainer2","chartHypUAL");
         chart2.clearRect(0, 0, chart2Canvas.width, chart2Canvas.height);    
-        renderUALChart("chartHypUAL", barChartHypUAL.data);
+        renderUALChart("chartHypUAL", barChartHypUAL.data, amortSch.rateYear);
         
         resetFSperiods();
         // renderUALChart("chartHypUAL", chart2.data);
@@ -1189,132 +1195,288 @@ function DataTableToHTML(oTable, oAgency){
       console.error(error);
     }
   }
+
+  // Added 3/25/24
+  // BarChartData class definition
+//const globalDataUAL = {
+  class EmpUAL {
+    constructor() {
+      this.employerCID = 0;
+      this.rateYear = 0;
+      this.discountRate = 0;
+      this.payrollInflRate = 0;
+      this.plans = [];
+      this.amortBases = {};
+      this.amortTotals = {};
+      this.payrollData = {};
+      this.pctUALData = [];
+    }
+
+    // Method to set params: employerCID, discountRate, payrollInflRate
+    async getProps() {
+      return new Promise(async (resolve, reject) => {
+        try {
+          await Excel.run(async (context) => {
+            // Get the selected range
+            let sheetCtrl = context.workbook.worksheets.getItem("control")
+            let sheetER = context.workbook.worksheets.getItem("calcs_current_rate_plan")
+            let sheetFinRslt = context.workbook.worksheets.getItem("export_rp_financing_all")
+            let sheetERProj = context.workbook.worksheets.getItem("ER Projection")
+            const cID = sheetER.getRange("calpers_id"); 
+            const curYear = sheetCtrl.getRange("current_year");
+            const dRate = sheetCtrl.getRange("interest_rate");
+            const pInflRate = sheetCtrl.getRange("payroll_growth");
+            const empPayroll = sheetERProj.getRange("C13"); // For rate-setting year
+
+            // Load the values of the selected range
+            cID.load("values");
+            curYear.load("values");
+            dRate.load("values");
+            pInflRate.load("values");   
+            empPayroll.load("values");  
+            // Run the queued commands to load values
+            await context.sync();
+
+            this.employerCID = Number(cID.values);
+            this.rateYear = Number(curYear.values)+2;
+            this.discountRate = Number(dRate.values);
+            this.payrollInflRate = Number(pInflRate.values);
+            
+            this.payrollData.empTotal = createProjArray(30);
+            this.payrollData.empTotal[0] = Number(empPayroll.values);
+            this.payrollData.empTotal = createRolledArray(this.payrollData.empTotal, (1 + Number(this.payrollInflRate)));
+            
+          });
+          resolve();
+        } catch (error) {
+            reject(error);
+        }
+      });
+    }  
+
+    // Method to get rolled up amort schedules by plan
+    async addAmortData() {
+      return new Promise(async (resolve, reject) => {
+        try {
+          await Excel.run(async (context) => {
+            // Get the selected range
+            let sheetFinRslt = context.workbook.worksheets.getItem("export_rp_financing_all")
+            let sheetAmortRslt = context.workbook.worksheets.getItem("export_rp_amort_base_all")
+            const keyColumnIndex = 0;  // Column from sheetFinRslt to lookup VRPs under an ER CID
+            const keyAmortColumnIndex = 0;  // Column from sheetFinRslt to lookup VRPs under an ER CID
+            const finRslts = sheetFinRslt.getRange("A5:NM3000");
+            const finAmortRows = sheetAmortRslt.getRange("C3:W30000");
+            const finAmortRowsKey = sheetAmortRslt.getRange("C2:W2");
+            const amortRows = {};
+            
+            // Load the values of the selected range
+            finRslts.load("address, columnCount, rowCount, values");
+            finAmortRows.load("address, columnCount, rowCount, values");
+            finAmortRowsKey.load("address, columnCount, rowCount, values");
+      
+            // Run the queued commands to load values
+            await context.sync();
+      
+            // Create lists to store matching rows and columns to sum across
+            const matchingRows = [];
+            const matchingColumns = [];
+      
+            // Iterate through fin result tab to find ER's plans
+            const employerRows = {};
+            for (let row = 0; row < finRslts.values.length; row++) {
+              const key = Number(finRslts.values[row][keyColumnIndex]);
+              if (this.employerCID == key) {
+                employerRows[finRslts.values[row][2]] = employerRows[finRslts.values[row][2]] || 0;
+                amortRows[finRslts.values[row][2]] = [];
+              }
+            }
+      
+            Object.keys(employerRows).forEach((key) => {
+              this.plans.push(key);
+            })
+            
+      
+            // Iterate through the amort rows and identify ER's rows within the plans
+            for (let row = 0; row < finAmortRows.values.length; row++) {
+              const key = finAmortRows.values[row][keyAmortColumnIndex];
+              if (key in employerRows) {
+                matchingRows.push(row);
+              }
+            }
+      
+            // Iterate through the columns and identify matching columns
+            for (let col = 0; col < finAmortRows.columnCount; col++) {
+              const header = finAmortRowsKey.values[0][col];
+              matchingColumns.push(col);
+            }
+      
+            // Create dictionaries to store totals and values for each column
+            const columnTotals = {};
+      
+            // Iterate only across the relevant portion of the result range for totals
+            for (const row of matchingRows) {
+              const employerVRP = Number(finAmortRows.values[row][0]);
+              const rowValues = {};  // Nest within employerRows{}
+      
+              for (const col of matchingColumns) {
+                // Initialize total for the column if not already present
+                const rsltType = finAmortRowsKey.values[0][col];
+                columnTotals[rsltType] = columnTotals[rsltType] || 0;
+                const numericValue = Number(finAmortRows.values[row][col]); //First column is indexed to 0
+                if (!isNaN(numericValue)) {
+                  columnTotals[rsltType] += numericValue;
+                }
+                rowValues[rsltType] = finAmortRows.values[row][col];
+              }
+              amortRows[employerVRP].push(rowValues);
+            }
+      
+            await context.sync();
+            // Display the summary in console log for debugging
+            //console.log(`The summary range address was ${finAmortRows.address}.`);
+            //console.log(`The ER CID was ${this.employerCID}.`);
+            //console.log(columnTotals);
+            //console.log(amortRows);
+            globalDRate = this.discountRate; // Set global variable for chart fresh start updates
+            //const {...copiedAmortRows} = amortRows;
+            //this.amortBases = copiedAmortRows;
+            this.amortBases = amortRows;
+            this.amortTotals = this.getAmortTotal(amortRows, this.discountRate, this.payrollInflRate);
+            this.amortTotals = this.getUpdSchedule(this.amortTotals, this.discountRate, this.payrollInflRate); // Checks for negative balances at the end of a schedule and simulates single year Fresh Start
+            
+          });
+          resolve();
+        } catch (error) {
+            console.error(error);
+        }
+      });
+    }
+
+    // Sum up amort rows
+    getAmortTotal(amortRows, dRate, payInflRate) {
+      try {
+        // Create object for storing plan amort balances and payments
+        const plans = {};
+    
+        // Iterate only across the relevant portion of the result range for totals
+        Object.keys(amortRows).forEach((ratePlan) => {
+          var planDtls = {'Total Balance': createProjArray(30), 'Total Payments': createProjArray(30)};  
+          const amortList = amortRows[ratePlan];
+          //console.log(amortList);
+    
+          for (const j in amortList) {
+            // roll forward balance and payment across each amort row
+            const amortBase = amortList[j]
+            var baseDtls = {'Total Balance': createProjArray(30), 'Total Payments': createProjArray(30)};
+            this['amortBases'][ratePlan][j]['projBalance'] = createProjArray(30);
+            this['amortBases'][ratePlan][j]['projPayment'] = createProjArray(30);
+            for (let i = 0; i < Math.max(Number(amortBase['AMORT_PERIOD']), 0); i++) {
+              if (i == 0) {
+                baseDtls['Total Balance'][i] = amortBase['VAL_DATE2_AMT']; // Start at rate-setting year, NOT val date
+                baseDtls['Total Payments'][i] = amortBase['VAL_DATE2_PMT']; // Start at rate-setting year, NOT val date
+                this['amortBases'][ratePlan][j]['projBalance'][i] = Number(amortBase['VAL_DATE2_AMT']);
+                this['amortBases'][ratePlan][j]['projPayment'][i] = Number(amortBase['VAL_DATE2_PMT']);
+              } else {
+                var iPrime = dRate; // Default to level-dollar funding type
+                if (amortBase['AMORT_FUNDING_TYPE_CD'] == '002') { // Use level-percent of pay if applicable
+                  iPrime = ((1 + dRate) / (1 + payInflRate)) - 1;
+                }
+                const numericValueBal = Math.round(Number(baseDtls['Total Balance'][i - 1]) * (1 + dRate) - Number(baseDtls['Total Payments'][i - 1]) * Math.pow(1 + dRate, 0.5));
+                let numericValuePmt = 0;
+                if (amortBase['AMORT_CAUSE_TYPE_CD'] == '120') {
+                  numericValuePmt = 0;  // Handle plan in projected surplus
+                } else {
+                  numericValuePmt = Math.round(dRSPmt(iPrime,Number(amortBase['INITIAL_AMORT_PERIOD']),Number(amortBase['AMORT_PERIOD']) - i,Number(amortBase['INITIAL_RAMP_PERIOD_YRS']),numericValueBal * Math.pow(1 + dRate, 0.5),Number(amortBase['RAMP_UP_ONLY_FLAG'])));
+                }
+
+                if (!isNaN(numericValueBal)) {
+                  baseDtls['Total Balance'][i] = numericValueBal;
+                  this['amortBases'][ratePlan][j]['projBalance'][i] = numericValueBal;
+                }
+                if (!isNaN(numericValuePmt)) {
+                  baseDtls['Total Payments'][i] = numericValuePmt;
+                  this['amortBases'][ratePlan][j]['projPayment'][i] = numericValuePmt;
+                }
+              }
+              // Add on the base's amounts to the plans total for that year
+              planDtls['Total Balance'][i] += baseDtls['Total Balance'][i];
+              planDtls['Total Payments'][i] += baseDtls['Total Payments'][i];
+            }
+            //console.log(amortBase); // Uncomment for debugging
+            //console.log(baseDtls); // Uncomment for debugging
+          }
+          // Now that the plan is processed, store results before moving to next plan
+          // Still need to check if end of schedule needs altering for negative balance
+          plans[ratePlan] = plans[ratePlan] || planDtls;
+        });
+    
+        // Display the summary in a dialog box
+        //console.log("The original ER amort schedules are:");
+        //console.log(plans);
+        return plans;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    // Clean up end of schedule for overpayments
+    getUpdSchedule(origSchedule, dRate, payInflRate) {
+      try {
+        // Iterate only across the relevant portion of the result range for totals
+        var amortSchedule = origSchedule;
+    
+        Object.keys(amortSchedule).forEach((ratePlan) => {
+          var planBalances = amortSchedule[ratePlan]['Total Balance'];
+          var planPayments = amortSchedule[ratePlan]['Total Payments'];
+    
+          // Start evaluation at index 1 (after rate-setting year) since payment for prior year has already been evaluated by financing
+          var setZero = false;
+          for (let i = 1; i < 30; i++) {
+            if (setZero) {
+              planBalances[i] = 0;
+              planPayments[i] = 0;
+            } else {
+              if ((Number(planBalances[i]) < 0) && (Number(planPayments[i-1]) > 0)) {
+                planPayments[i-1] = Math.round(Number(planBalances[i-1]) * Math.pow(1 + dRate, 0.5));
+                planBalances[i] = 0;
+                planPayments[i] = 0;
+                setZero = true;
+              }
+            }
+          };
+          
+          // Now that the plan is processed, store results before moving to next plan
+          amortSchedule[ratePlan]['Total Balance'] = amortSchedule[ratePlan]['Total Balance'] || planBalances;
+          amortSchedule[ratePlan]['Total Payments'] = amortSchedule[ratePlan]['Total Payments'] || planPayments;
+        });
+    
+        // Display the summary in a dialog box
+        //console.log("The updated ER amort schedules are:");
+        //console.log(amortSchedule);
+        return amortSchedule;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+  }
   
   // Added 2/1/24  --  Array of specified length filled with 0's
   function createProjArray(len) {
     return new Array(len).fill(0);
   }
-  
-  // Added 1/31/24
-  function getAmortTotal(amortRows, dRate, payInflRate) {
-    try {
-      ////////////////////////////////////////////////////////
-      ////////  Amort Base Columns: 
-      ////////    Column C - VAL_RATE_PLAN_IDENTIFIER
-      ////////    Column D - VALUATION_YEAR_ID
-      ////////    Column E - AMORT_CAUSE_TYPE_CD
-      ////////    Column F - AMORT_DESC
-      ////////    Column G - AMORT_FUNDING_TYPE_CD
-      ////////    Column H - AMORT_PERIOD_TYPE_CD
-      ////////    Column I - INITIAL_VALUATION_YEAR_ID
-      ////////    Column J - INITIAL_AMORT_PERIOD
-      ////////    Column K - INITIAL_RAMP_PERIOD_YRS
-      ////////    Column L - INITIAL_AMT
-      ////////    Column M - AMORT_PERIOD
-      ////////    Column N - VAL_DATE_AMT
-      ////////    Column O - VAL_DATE1_AMT
-      ////////    Column P - VAL_DATE2_AMT
-      ////////    Column Q - VAL_DATE_PMT
-      ////////    Column R - VAL_DATE1_PMT
-      ////////    Column S - VAL_DATE2_PMT
-      ////////    Column T - PMT_PERCENT  // Can ignore?
-      ////////    Column U - RAMP_DIRECTION_TYPE_CD
-      ////////    Column V - RAMP_PCNT
-      ////////    Column W - RAMP_UP_ONLY_FLAG
-      ////////////////////////////////////////////////////////
-  
-  
-      // Create object for storing plan amort balances and payments
-      const plans = {};
-  
-      // Iterate only across the relevant portion of the result range for totals
-      Object.keys(amortRows).forEach((ratePlan) => {
-        var planDtls = {'Total Balance': createProjArray(30), 'Total Payments': createProjArray(30)};  
-        const amortList = amortRows[ratePlan];
-        //console.log(amortList);
-  
-        for (const j in amortList) {
-          // roll forward balance and payment across each amort row
-          const amortBase = amortList[j]
-          var baseDtls = {'Total Balance': createProjArray(30), 'Total Payments': createProjArray(30)};
-          for (let i = 0; i < Math.max(Number(amortBase['AMORT_PERIOD']), 0); i++) {
-            if (i == 0) {
-              baseDtls['Total Balance'][i] = amortBase['VAL_DATE2_AMT']; // Start at rate-setting year, NOT val date
-              baseDtls['Total Payments'][i] = amortBase['VAL_DATE2_PMT']; // Start at rate-setting year, NOT val date
-            } else {
-              var iPrime = dRate; // Default to level-dollar funding type
-              if (amortBase['AMORT_FUNDING_TYPE_CD'] == '002') { // Use level-percent of pay if applicable
-                iPrime = ((1 + dRate) / (1 + payInflRate)) - 1;
-              }
-              const numericValueBal = Math.round(Number(baseDtls['Total Balance'][i - 1]) * (1 + dRate) - Number(baseDtls['Total Payments'][i - 1]) * Math.pow(1 + dRate, 0.5));
-              const numericValuePmt = Math.round(dRSPmt(iPrime,Number(amortBase['INITIAL_AMORT_PERIOD']),Number(amortBase['AMORT_PERIOD']) - i,Number(amortBase['INITIAL_RAMP_PERIOD_YRS']),numericValueBal * Math.pow(1 + dRate, 0.5),Number(amortBase['RAMP_UP_ONLY_FLAG'])));
-              if (!isNaN(numericValueBal)) {
-                baseDtls['Total Balance'][i] = numericValueBal;
-              }
-              if (!isNaN(numericValuePmt)) {
-                baseDtls['Total Payments'][i] = numericValuePmt;
-              }
-            }
-            // Add on the base's amounts to the plans total for that year
-            planDtls['Total Balance'][i] += baseDtls['Total Balance'][i];
-            planDtls['Total Payments'][i] += baseDtls['Total Payments'][i];
-          }
-          //console.log(amortBase); // Uncomment for debugging
-          //console.log(baseDtls); // Uncomment for debugging
-        }
-        // Now that the plan is processed, store results before moving to next plan
-        // Still need to check if end of schedule needs altering for negative balance
-        plans[ratePlan] = plans[ratePlan] || planDtls;
-      });
-  
-  
-      // Display the summary in a dialog box
-      console.log("The original ER amort schedules are:");
-      console.log(plans);
-      return plans;
-    } catch (error) {
-      console.error(error);
+
+  // Added 3/29/24  --  Return starting array with the first value projected forward by a given factor to the lenght of the array
+  function createRolledArray(sArr, factor) {
+    let fArr = [];
+    for (let i = 0; i < sArr.length; i++) {
+      if (i == 0) {
+        fArr.push(Math.round(sArr[0]));
+      } else {
+        fArr.push(Math.round(Number(fArr[i - 1])*Number(factor)));
+      }
     }
-  }
-  
-  // Added 2/2/24
-  function getUpdSchedule(origSchedule, dRate, payInflRate) {
-    try {
-      // Iterate only across the relevant portion of the result range for totals
-      var amortSchedule = origSchedule;
-  
-      Object.keys(amortSchedule).forEach((ratePlan) => {
-        var planBalances = amortSchedule[ratePlan]['Total Balance'];
-        var planPayments = amortSchedule[ratePlan]['Total Payments'];
-  
-        // Start evaluation at index 1 (after rate-setting year) since payment for prior year has already been evaluated by financing
-        var setZero = false;
-        for (let i = 1; i < 30; i++) {
-          if (setZero) {
-            planBalances[i] = 0;
-            planPayments[i] = 0;
-          } else {
-            if (Number(planBalances[i]) < 0) {
-              planPayments[i-1] = Math.round(Number(planBalances[i-1]) * Math.pow(1 + dRate, 0.5));
-              planBalances[i] = 0;
-              planPayments[i] = 0;
-              setZero = true;
-            }
-          }
-        };
-        
-        // Now that the plan is processed, store results before moving to next plan
-        amortSchedule[ratePlan]['Total Balance'] = amortSchedule[ratePlan]['Total Balance'] || planBalances;
-        amortSchedule[ratePlan]['Total Payments'] = amortSchedule[ratePlan]['Total Payments'] || planPayments;
-      });
-  
-      // Display the summary in a dialog box
-      //console.log("The updated ER amort schedules are:");
-      //console.log(amortSchedule);
-      return amortSchedule;
-    } catch (error) {
-      console.error(error);
-    }
+    return fArr;
   }
   
   // Added 2/13/24
@@ -1333,7 +1495,7 @@ function DataTableToHTML(oTable, oAgency){
         planPayments[i] = Math.round(dRSPmt(Number(dRate),Number(period),Number(period) - i,1,planBalances[i] * Math.pow(1 + dRate, 0.5),0));
       };
   
-      return planPayments;
+      return {payments: planPayments, balances: planBalances};
     } catch (error) {
       console.error(error);
     }
@@ -1353,15 +1515,48 @@ function DataTableToHTML(oTable, oAgency){
       // Update the chart ///////////////////////////////////////////////////////////////////////////////////////////
       for (let i = 0; i < barChartHypUAL["data"].length; i++) {
         if (barChartHypUAL["data"][i]["label"] == selectedPlan) {
-          var hypArray = [];
+          var hypBalArray = [];
+          var hypPmtArray = [];
+          var hypFSObj = freshStartSchedule(Number(barChartUALBalance["data"][i]["data"][0]), globalDRate, selectedPeriod); //Currently grabbing first payment, needs to grab beginning balance
           // Assumes barChartUALBalance corresponds to same ordering as barChartHypUAL
-          hypArray = freshStartSchedule(Number(barChartUALBalance["data"][i]["data"][0]), globalDRate, selectedPeriod); //Currently grabbing first payment, needs to grab beginning balance
+          hypBalArray = hypFSObj.balances;
+          hypPmtArray = hypFSObj.payments;
           barChartHypUAL["data"][i]["data"].splice(0, 30);
-          barChartHypUAL["data"][i]["data"].unshift(...hypArray);
+          barChartHypUAL["data"][i]["data"].unshift(...hypPmtArray);
+          const amortCount = barChartHypUAL["data"][i]["amortBases"].length;
+          const freshStartBase = {
+            AMORT_CAUSE_TYPE_CD: 103,
+            AMORT_DESC: "Simulated Fresh Start",
+            AMORT_FUNDING_TYPE_CD: "001",
+            AMORT_PERIOD: selectedPeriod,
+            AMORT_PERIOD_TYPE_CD: "002",
+            INITIAL_AMORT_PERIOD: selectedPeriod,
+            INITIAL_AMT: 0, // Not set, default to 0
+            INITIAL_RAMP_PERIOD_YRS: 1,
+            INITIAL_VALUATION_YEAR_ID: Number(barChartHypUAL["data"][i]["amortBases"][0]["VALUATION_YEAR_ID"]),
+            PMT_PERCENT: 0, // Not set, default to 0
+            RAMP_DIRECTION_TYPE_CD: "NRP",
+            RAMP_PCNT: "",
+            RAMP_UP_ONLY_FLAG: 0,
+            VALUATION_YEAR_ID: Number(barChartHypUAL["data"][i]["amortBases"][0]["VALUATION_YEAR_ID"]),
+            VAL_DATE1_AMT: 0, // Not set, default to 0
+            VAL_DATE1_PMT: 0, // Not set, default to 0
+            VAL_DATE2_AMT: 0, // Not set, default to 0
+            VAL_DATE2_PMT: 0, // Not set, default to 0
+            VAL_DATE_AMT: 0, // Not set, default to 0
+            VAL_DATE_PMT: 0, // Not set, default to 0
+            VAL_RATE_PLAN_IDENTIFIER: Number(barChartHypUAL["data"][i]["amortBases"][0]["VAL_RATE_PLAN_IDENTIFIER"]),
+            projBalance: hypBalArray,
+            projPayment: hypPmtArray
+          };
+          barChartHypUAL["data"][i]["amortBases"].splice(0, amortCount);
+          barChartHypUAL["data"][i]["amortBases"].push(freshStartBase);
         }
       }
-      //chart2.clearRect(0, 0, chart2Canvas.width, chart2Canvas.height);    
-      //renderUALChart("chartHypUAL", barChartHypUAL.data);
+      // Need to iterate through and update 'UAL% of Payroll' object
+      barChartHypUAL.addPctPayData("red");
+
+      window.chartHypUAL.data.datasets = barChartHypUAL.data
       window.chartHypUAL.update();
 
     } catch (error) {
@@ -1470,6 +1665,62 @@ function DataTableToHTML(oTable, oAgency){
     for (var i = 0, row; row = table.rows[i]; i++) {
       document.getElementById(`dropdownPeriodin${i}`).value = 0;
     }
+  }
+
+  function clearAmortBasePanel() {
+    let tableBody = document.getElementById('selectBarAmortTable').getElementsByTagName('tbody')[0];
+    while(tableBody.rows.length > 0) tableBody.deleteRow(0);
+  }
+
+  function populateAmortBasePanel(amortBaseList, yrIndex) {
+    let tableBody = document.getElementById('selectBarAmortTable').getElementsByTagName('tbody')[0];
+    //let startrow = tableBody.rows.length;
+    for (let amortBaseNum = 0; amortBaseNum < amortBaseList.length; amortBaseNum++)
+    {
+      if (amortBaseList[amortBaseNum].projBalance[yrIndex] !== 0) {
+        var row = tableBody.insertRow(-1);
+        //row.style.background = globalChartBarColors[i];
+        var cellVRP = row.insertCell(-1);
+        cellVRP.innerHTML = amortBaseList[amortBaseNum].VAL_RATE_PLAN_IDENTIFIER;
+        var cellBaseYr = row.insertCell(-1);
+        cellBaseYr.innerHTML = convertValIDToDate(amortBaseList[amortBaseNum].INITIAL_VALUATION_YEAR_ID);
+        var cellBaseName = row.insertCell(-1);
+        cellBaseName.innerHTML = amortBaseList[amortBaseNum].AMORT_DESC;
+        var cellAmortPeriod = row.insertCell(-1);
+        cellAmortPeriod.innerHTML = amortBaseList[amortBaseNum].AMORT_PERIOD; // NEED TO CLARIFY THIS IS THE AMORT PERIOD AS OF THE RATE SETTING YEAR
+        var cellProjBalance = row.insertCell(-1);
+        cellProjBalance.innerHTML = amortBaseList[amortBaseNum].projBalance[yrIndex].toLocaleString(); // NEED TO DISPLAY THE YEAR BEING REFERENCED SOMEWHERE
+        var cellProjPayment = row.insertCell(-1);
+        cellProjPayment.innerHTML = amortBaseList[amortBaseNum].projPayment[yrIndex].toLocaleString();
+        var cellRampType = row.insertCell(-1);
+        cellRampType.innerHTML = amortBaseRampShape(amortBaseList[amortBaseNum].INITIAL_RAMP_PERIOD_YRS, amortBaseList[amortBaseNum].RAMP_UP_ONLY_FLAG);
+      }
+    }
+  }
+
+  function convertValIDToDate(valDateID) {
+    let year = 0;
+    let dateStr = '6/30/'
+    if (Number(valDateID) > 113) {
+      year = Number(valDateID) / 4 + 1983.5;
+    } else {
+      year = Number(valDateID) / 4 + 1996.25;
+    }
+    return dateStr + year;
+  }
+
+  function amortBaseRampShape(rampYrs, upOnlyInd) {
+    let rampShape = '';
+    if (Number(rampYrs) > 1) {
+      if (Number(upOnlyInd) == 1) {
+        rampShape = 'Up Only';
+      } else {
+        rampShape = 'Up and Down';
+      }
+    } else {
+      rampShape = 'No Ramp';
+    }
+    return rampShape;
   }
 
   ///////////////////////////////////////////////////////////////////////////////////////////////
