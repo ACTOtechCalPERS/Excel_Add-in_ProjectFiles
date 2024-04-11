@@ -542,6 +542,50 @@ function SummaryTableControl(oAgency, oAssumptions, aData){
     const oTable_P6  = new TableStructure(oAgency, oAssumptions, TableNameID_P6, DataSource_P6, FieldCodes_P6, FormatCodes_P6, VisibilityCodes_P6, ERTotalRowCodes_P6);    
 
 
+  // **** -- Demographics Tables -- *****
+
+        // --- ACT ---
+        const TableNameID_DGACT = "idTblDemographicsACT";
+        const DataSource_DGACT = DS0;
+        const FieldCodes_DGACT  = [63,24,115,26,25,96,70];
+        const FormatCodes_DGACT  = [1,4,4,4,1,1,1];
+        const VisibilityCodes_DGACT  = [1,1,1,1,1,1,1];
+        const ERTotalRowCodes_DGACT = ["SUM","NULL","NULL","NULL","NULL","SUM","SUM"];
+    
+        const oTable_DGACT  = new TableStructure(oAgency, oAssumptions, TableNameID_DGACT, DataSource_DGACT, FieldCodes_DGACT, FormatCodes_DGACT, VisibilityCodes_DGACT, ERTotalRowCodes_DGACT);    
+        
+        // --- TRA ---
+        const TableNameID_DGTRA = "idTblDemographicsTRA";
+        const DataSource_DGTRA = DS0;
+        const FieldCodes_DGTRA  = [64];
+        const FormatCodes_DGTRA  = [1];
+        const VisibilityCodes_DGTRA  = [1];
+        const ERTotalRowCodes_DGTRA = ["SUM"];
+    
+        const oTable_DGTRA  = new TableStructure(oAgency, oAssumptions, TableNameID_DGTRA, DataSource_DGTRA, FieldCodes_DGTRA, FormatCodes_DGTRA, VisibilityCodes_DGTRA, ERTotalRowCodes_DGTRA);    
+
+        // --- SEP ---
+        const TableNameID_DGSEP = "idTblDemographicsSEP";
+        const DataSource_DGSEP = DS0;
+        const FieldCodes_DGSEP  = [65];
+        const FormatCodes_DGSEP  = [1];
+        const VisibilityCodes_DGSEP  = [1];
+        const ERTotalRowCodes_DGSEP = ["SUM"];
+    
+        const oTable_DGSEP = new TableStructure(oAgency, oAssumptions, TableNameID_DGSEP, DataSource_DGSEP, FieldCodes_DGSEP, FormatCodes_DGSEP, VisibilityCodes_DGSEP, ERTotalRowCodes_DGSEP);    
+
+         // --- RET---
+         const TableNameID_DGRET= "idTblDemographicsRET";
+         const DataSource_DGRET= DS0;
+         const FieldCodes_DGRET = [66,2467];
+         const FormatCodes_DGRET = [1,1];
+         const VisibilityCodes_DGRET = [1,1];
+         const ERTotalRowCodes_DGRET= ["SUM","SUM"];
+     
+         const oTable_DGRET = new TableStructure(oAgency, oAssumptions, TableNameID_DGRET, DataSource_DGRET, FieldCodes_DGRET, FormatCodes_DGRET, VisibilityCodes_DGRET, ERTotalRowCodes_DGRET);    
+ 
+                
+
   DataTableToHTML(oTable_MM, oAgency);
   DataTableToHTML(oTable_HT, oAgency);
   DataTableToHTML(oTable_DR, oAgency);
@@ -556,6 +600,10 @@ function SummaryTableControl(oAgency, oAssumptions, aData){
   DataTableToHTML(oTable_P4, oAgency);
   DataTableToHTML(oTable_P5, oAgency);
   DataTableToHTML(oTable_P6, oAgency);
+  DataTableToHTML(oTable_DGACT, oAgency);
+  DataTableToHTML(oTable_DGTRA, oAgency);
+  DataTableToHTML(oTable_DGSEP, oAgency);
+  DataTableToHTML(oTable_DGRET, oAgency);
 }
 
 /****************************************************************************************
